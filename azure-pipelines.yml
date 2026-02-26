@@ -1,0 +1,53 @@
+trigger:
+  - main
+
+pr:
+  - main
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: "20.x"
+    displayName: "Use Node.js 20"
+
+  - script: npm ci
+    displayName: "Install dependencies"
+
+  - script: npx playwright install --with-deps
+    displayName: "Install Playwright browsers + deps"
+
+  - script: npx playwright test
+    displayName: "Run Playwright tests"
+    env:
+      CI: "true"
+      OPENAI_API_KEY: $(OPENAI_API_KEY)
+      N8N_WEBHOOK_URL: $(N8N_WEBHOOK_URL)
+      N8N_HOOK_TOKEN: $(N8N_HOOK_TOKEN)
+
+  # Publica o JUnit na aba Tests do Azure DevOps
+  - task: PublishTestResults@2
+    displayName: "Publish test results (JUnit)"
+    condition: succeededOrFailed()
+    inputs:
+      testResultsFormat: "JUnit"
+      testResultsFiles: "test-results/junit/results.xml"
+      failTaskOnFailedTests: false
+
+  # Publica o relatório HTML do Playwright
+  - task: PublishPipelineArtifact@1
+    displayName: "Publish Playwright HTML report"
+    condition: succeededOrFailed()
+    inputs:
+      targetPath: "playwright-report"
+      artifact: "playwright-report"
+
+  # Publica artefatos brutos (traces, vídeos, prints)
+  - task: PublishPipelineArtifact@1
+    displayName: "Publish Playwright artifacts"
+    condition: succeededOrFailed()
+    inputs:
+      targetPath: "test-results"
+      artifact: "test-results"
