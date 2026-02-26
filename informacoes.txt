@@ -1,0 +1,238 @@
+openaiEngine.js
+É o cliente da OpenAI.
+Lê OPENAI_API_KEY
+Envia um prompt para o modelo (client.responses.create)
+Retorna só o texto final (resp.output_text.trim())
+
+
+
+
+transactionValidator.js
+É o validador “inteligente” (IA) das transações.
+Recebe transactionsText (texto da tabela) e expectedBalance
+Faz validações rápidas pra evitar gastar tokens (texto vazio / tabela só com headers)
+Monta um prompt restrito pedindo APENAS JSON
+Chama runOpenAI()
+Extrai e faz parse do JSON e devolve { pass, reason }
+
+
+
+CustomerPage.js
+É o Page Object (POM) da área do cliente no banco.
+Faz login do cliente via select (selectCustomer)
+Lê saldo (getBalance)
+Faz depósito e confirma saldo com expect.poll (deposit)
+Faz saque e confirma saldo (withdraw)
+Abre transações, ajusta filtro de data e tenta garantir linhas (openTransactions)
+Extrai o texto da tabela para validações (getTransactionsText)
+
+
+
+LoginPage.js
+É o Page Object (POM) da tela inicial.
+Abre a URL do sistema (goTo)
+Clica em “Customer Login” (loginAsCustomer)
+
+
+
+n8nNotifier.js
+É o integrador com n8n via webhook (observabilidade/alertas).
+Lê N8N_WEBHOOK_URL (e opcionalmente N8N_HOOK_TOKEN)
+Envia payload via fetch POST
+Tem timeout com AbortController
+Limpa códigos ANSI dos erros
+Loga sucesso/erro sem quebrar o teste
+Se você quiser, eu também posso te dizer o fluxo completo: quem chama quem e em que ordem (tipo um “mapa” do projeto).
+
+
+
+
+
+
+📄 Documento de Validação de Teste
+Projeto: Automação Bancária com Playwright + IA
+🎯 1. Objetivo Geral
+
+Este teste tem como objetivo validar a consistência funcional e lógica de um sistema bancário, utilizando:
+Automação de interface (Playwright)
+Validação determinística (cálculo de saldo)
+Validação inteligente com IA (OpenAI)
+Integração com monitoramento externo (n8n)
+O foco é garantir que as operações financeiras (depósito e saque) sejam corretamente refletidas:
+No saldo final
+No histórico de transações
+Na consistência dos dados apresentados ao usuário
+
+
+
+
+🎯 2. Objetivos Específicos de Validação
+2.1 Validação de Login do Cliente
+Objetivo: Garantir que o usuário consegue acessar o sistema corretamente.
+Validações realizadas:
+A página de login é carregada com sucesso
+O botão "Customer Login" funciona
+O cliente é selecionado corretamente
+A navegação para a página de conta ocorre
+A mensagem de boas-vindas ("Welcome") é exibida
+
+2.2 Validação de Operação de Depósito
+Objetivo: Validar que o sistema registra corretamente um depósito.
+Validações realizadas:
+O formulário de depósito é exibido
+O valor é inserido corretamente
+O submit é executado com sucesso
+O saldo é atualizado corretamente
+Regra validada:
+Saldo final = saldo anterior + valor do depósito
+
+
+
+2.3 Validação de Operação de Saque
+Objetivo: Validar que o sistema registra corretamente um saque.
+Validações realizadas:
+O formulário de saque é exibido
+O valor é inserido corretamente
+O submit é executado com sucesso
+O saldo é atualizado corretamente
+Regra validada:
+Saldo final = saldo anterior - valor do saque
+
+
+
+2.4 Validação de Consistência de Saldo
+Objetivo: Garantir que a soma das operações reflete corretamente no saldo final.
+Cenário testado:
+Round 1: depósito + saque
+Round 2: depósito + saque
+
+Validação:
+Saldo final esperado = saldo inicial + operações do Round 2
+Tipo de validação:
+✔ Determinística (cálculo matemático direto)
+
+
+
+2.5 Validação da Tabela de Transações
+Objetivo: Garantir que as operações realizadas estão registradas no histórico.
+Validações realizadas:
+A tabela de transações é exibida
+O filtro de data retorna registros
+A tabela não está vazia
+Existem transações do tipo:
+Credit (depósito)
+Debit (saque)
+Falhas detectáveis:
+Tabela vazia
+Falha de atualização da UI
+Filtro de data incorreto
+Problema de sincronização Angular
+
+
+
+
+2.6 Validação Inteligente com IA
+Objetivo: Validar a consistência lógica entre:
+Histórico de transações
+Saldo final exibido
+Como funciona:
+O texto da tabela é enviado para a IA
+O saldo esperado é informado
+A IA atua como um auditor financeiro
+Resultado esperado:
+
+{
+  "pass": true,
+  "reason": "..."
+}
+Validações realizadas pela IA:
+Se a soma das transações corresponde ao saldo final
+Se há inconsistências nos dados
+Se há ausência de informações suficientes
+Tipo de validação:
+✔ Heurística / Inteligente (IA)
+
+
+
+
+2.7 Validação de Integridade do Retorno da IA
+Objetivo: Garantir que a IA respondeu corretamente.
+Validações realizadas:
+A resposta é JSON válido
+Contém as chaves:
+pass (boolean)
+reason (string)
+Em caso de erro, o teste falha com mensagem explicativa
+
+
+
+
+2.8 Validação de Observabilidade (n8n)
+Objetivo: Garantir rastreabilidade dos testes.
+Validações realizadas:
+Envio de evento após cada teste
+Registro de:
+status (pass/fail)
+duração
+erros
+timestamp
+Classificação de severidade:
+SUCCESS
+ERROR
+Benefícios:
+Monitoramento em tempo real
+Integração com dashboards
+Alertas automáticos
+
+
+
+
+
+🧠 3. Tipos de Validação Aplicados
+Tipo de Validação	Descrição
+Funcional	Verifica se as operações funcionam corretamente
+UI	Valida elementos visíveis na interface
+Lógica	Confirma cálculos de saldo
+Heurística (IA)	Avalia consistência dos dados
+Integração	Comunicação com webhook (n8n)
+Resiliência	Tratamento de falhas e timeouts
+
+
+
+
+⚠️ 4. Possíveis Falhas Detectadas
+O teste é capaz de identificar:
+Erro no cálculo de saldo
+Operações não refletidas no saldo
+Transações não registradas
+Tabela vazia ou não atualizada
+Falha na UI (botões, inputs)
+Resposta inválida da IA
+Problemas de integração com webhook
+
+
+
+
+🚀 5. Diferencial do Teste
+Este teste não se limita a validações tradicionais.
+Ele combina:
+Automação E2E (Playwright)
+Validação matemática (determinística)
+Auditoria inteligente (IA)
+Observabilidade (n8n)
+👉 Isso representa um modelo moderno de QA:
+QA tradicional + IA + Monitoramento
+
+
+
+
+
+📌 6. Conclusão
+O teste garante que o sistema bancário está:
+Funcionalmente correto
+Consistente nos dados exibidos
+Confiável do ponto de vista financeiro
+Monitorado em tempo real
+Além disso, introduz uma camada de validação avançada com IA, 
+aumentando a capacidade de detectar inconsistências 
+que não seriam facilmente identificadas por validações tradicionais.
