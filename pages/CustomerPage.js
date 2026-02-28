@@ -141,66 +141,57 @@ export class CustomerPage {
 
   // Abre a página de transações e aplica um range de tempo para garantir que aparecem registros
 async openTransactions() {
-  // ✅ garante que está na tela principal da conta (onde existem os botões)
-  await this.accountBlock.waitFor({ state: 'visible', timeout: 30000 });
+  await this.accountBlock.waitFor({ state: 'visible', timeout: 15000 });
 
   const txBtn = this.page.getByRole('button', { name: /^Transactions$/ });
-  await expect(txBtn).toBeVisible({ timeout: 30000 });
-
-  await txBtn.click({ timeout: 30000 });
-  await this.page.waitForURL(/#\/listTx/, { timeout: 30000 });
+  await txBtn.click({ timeout: 15000 });
+  await this.page.waitForURL(/#\/listTx/, { timeout: 15000 });
 
   const start = this.page.locator('#start');
   const end = this.page.locator('#end');
-  const table = this.page.locator('table');
   const rows = this.page.locator('table tbody tr');
 
-  await expect(start).toBeVisible({ timeout: 30000 });
-  await expect(end).toBeVisible({ timeout: 30000 });
-  await expect(table).toBeVisible({ timeout: 30000 });
+  await expect(start).toBeVisible({ timeout: 15000 });
+  await expect(end).toBeVisible({ timeout: 15000 });
 
-  // ✅ range maior para CI (24h)
   const now = new Date();
-  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-  const applyRange = async () => {
-    await start.fill(toDatetimeLocal(oneDayAgo));
+  const applyRange = async (from) => {
+    await start.fill(toDatetimeLocal(from));
     await end.fill(toDatetimeLocal(now));
-
-    // Angular às vezes só reage no blur + events
-    await start.evaluate(el => el.blur());
-    await end.evaluate(el => el.blur());
-
-    await start.dispatchEvent('input');
-    await start.dispatchEvent('change');
-    await end.dispatchEvent('input');
-    await end.dispatchEvent('change');
+    await start.dispatchEvent('input'); await start.dispatchEvent('change');
+    await end.dispatchEvent('input');   await end.dispatchEvent('change');
   };
 
-  // aplica filtro e espera linhas
+  // ✅ tentativa rápida: 1 hora
   try {
-    await applyRange();
-    await expect(rows.first()).toBeVisible({ timeout: 30000 });
+    await applyRange(new Date(now.getTime() - 60 * 60 * 1000));
+    await expect(rows.first()).toBeVisible({ timeout: 4000 }); // curto = rápido
     return;
-  } catch {
-    // fallback: voltar e abrir novamente, reaplicar filtro e esperar linhas
-    const back = this.page.locator('button:has-text("Back")').first();
-    if (await back.count()) {
-      await back.click({ force: true });
-      await this.page.waitForURL('**/account', { timeout: 30000 });
+  } catch {}
 
-      await expect(txBtn).toBeVisible({ timeout: 30000 });
-      await txBtn.click({ timeout: 30000 });
-      await this.page.waitForURL(/#\/listTx/, { timeout: 30000 });
+  // ✅ fallback leve: 24 horas (sem sair da página)
+  try {
+    await applyRange(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+    await expect(rows.first()).toBeVisible({ timeout: 8000 });
+    return;
+  } catch {}
 
-      await expect(table).toBeVisible({ timeout: 30000 });
-      await applyRange();
-      await expect(rows.first()).toBeVisible({ timeout: 30000 });
-      return;
-    }
+  // ✅ fallback pesado (só se necessário): volta e reabre
+  const back = this.page.locator('button:has-text("Back")').first();
+  if (await back.count()) {
+    await back.click({ force: true });
+    await this.page.waitForURL('**/account', { timeout: 15000 });
 
-    throw new Error('Não foi possível carregar linhas na tabela de transações (sem botão Back para fallback).');
+    await txBtn.click({ timeout: 15000 });
+    await this.page.waitForURL(/#\/listTx/, { timeout: 15000 });
+
+    await applyRange(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+    await expect(rows.first()).toBeVisible({ timeout: 15000 });
+    return;
   }
+
+  throw new Error('Tabela de transações não carregou linhas após tentativas.');
 }
 
   // Retorna o texto da tabela de transações (útil pra validação com IA ou asserts)
