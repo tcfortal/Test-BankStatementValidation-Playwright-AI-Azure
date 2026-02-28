@@ -67,7 +67,7 @@ test('OpenAI Banking Validation - Deposit and Withdraw (2 rounds)', async ({ pag
   const initialBalance = parseInt(await customer.getBalance(), 10);
 
   // Round 2
-  await customer.deposit(1001); // deposita 1001 (OBS: aqui você mudou de 1000 para 1001)
+  await customer.deposit(1000); // deposita 1001 (OBS: aqui você mudou de 1000 para 1001)
   await customer.withdraw(200); // saca 200
 
   // Lê saldo final após Round 2
