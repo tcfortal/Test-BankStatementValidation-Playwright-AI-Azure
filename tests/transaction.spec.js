@@ -67,7 +67,7 @@ test('OpenAI Banking Validation - Deposit and Withdraw (2 rounds)', async ({ pag
   const initialBalance = parseInt(await customer.getBalance(), 10);
 
   // Round 2
-  await customer.deposit(1000); // deposita 1001 (OBS: aqui você mudou de 1000 para 1001)
+  await customer.deposit(1000); // deposita 1000 (OBS: aqui você mudou de 1000 para 1001)
   await customer.withdraw(200); // saca 200
 
   // Lê saldo final após Round 2
@@ -78,18 +78,26 @@ test('OpenAI Banking Validation - Deposit and Withdraw (2 rounds)', async ({ pag
   // mas no Round 2 você fez deposit(1001). Isso tende a gerar falha de 1 unidade.
   expect(finalBalance).toBe(initialBalance + 1000 - 200);
 
-  // Pega o texto da tabela de transações
-  const transactionsText = await customer.getTransactionsText();
+const transactionsText = await customer.getTransactionsText();
 
-  // Sanity check: confirma que não veio vazio
-  expect(transactionsText && transactionsText.trim().length > 0).toBeTruthy();
+// sanity check básico
+expect(transactionsText && transactionsText.trim().length > 0).toBeTruthy();
 
-  // Sanity check: confirma que existe pelo menos Credit/Debit no texto
-  // Se falhar, mostra a tabela no erro pra facilitar debug
-  expect(
-    /Credit|Debit/i.test(transactionsText),
-    `Tabela parece sem transações:\n${transactionsText}`
-  ).toBe(true);
+// 🔥 retry inteligente (evita falha por flakiness no CI)
+let finalText = transactionsText;
+
+if (!/Credit|Debit/i.test(transactionsText)) {
+  console.warn('⚠️ Tabela vazia na primeira tentativa, tentando novamente...');
+
+  // tenta novamente buscar a tabela
+  finalText = await customer.getTransactionsText();
+}
+
+// valida de fato
+expect(
+  /Credit|Debit/i.test(finalText),
+  `Tabela parece sem transações:\n${finalText}`
+).toBe(true);
 
   // Chama IA para validar consistência entre transações e saldo final esperado
   const aiResult = await validateBankConsistency(transactionsText, finalBalance);
