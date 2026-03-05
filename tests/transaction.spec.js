@@ -1,107 +1,184 @@
-
-// Importa test/expect do Playwright Test
 import { test, expect } from '@playwright/test';
-
-// Importa o POM de login
 import { LoginPage } from '../pages/LoginPage.js';
-
-// Importa o POM de customer/conta
 import { CustomerPage } from '../pages/CustomerPage.js';
 
-// Importa a validação com IA
-import { validateBankConsistency } from '../ai/transactionValidator.js';
-
-// Importa a função que notifica um webhook do n8n
-import { notifyN8n } from '../utils/n8nNotifier.js';
-
-// Define timeout máximo por teste (60 segundos)
 test.setTimeout(60000);
 
-// 🔥 HOOK GLOBAL - dispara quando o teste termina
-// afterEach executa após cada teste do arquivo (passando ou falhando)
-test.afterEach(async ({}, testInfo) => {
-  // Monta um payload com informações do resultado do teste
-  const payload = {
-    event: 'playwright_result',                // tipo de evento (você definiu um nome fixo)
-    title: testInfo.title,                     // título do teste
-    status: testInfo.status,                   // status real: 'passed', 'failed', 'timedOut', etc
-    expectedStatus: testInfo.expectedStatus,   // status esperado (normalmente 'passed')
-    duration: testInfo.duration,               // duração em ms
-    file: testInfo.file,                       // arquivo onde está o teste
-    errors: testInfo.errors?.map(e => e.message) || [], // lista com mensagens de erro (se houver)
-    timestamp: new Date().toISOString()         // timestamp do momento do envio
-  };
-
-  // Decide o nível do evento com base em status vs expectedStatus
-  // Se diferente, considera falha/erro
-  if (testInfo.status !== testInfo.expectedStatus) {
-    payload.level = 'ERROR';
-  } else {
-    payload.level = 'SUCCESS';
-  }
-
-  // Envia o payload para o webhook do n8n (se N8N_WEBHOOK_URL estiver configurado)
-  await notifyN8n(payload);
-});
-
-// Define o teste principal
-test('OpenAI Banking Validation - Deposit and Withdraw (2 rounds)', async ({ page }) => {
-  // Instancia os POMs com a mesma page do Playwright
+test('Login - Neville Longbottom', async ({ page }) => {
   const login = new LoginPage(page);
   const customer = new CustomerPage(page);
 
-  // Abre a tela de login
   await login.goTo();
-
-  // Clica em Customer Login
   await login.loginAsCustomer();
 
-  // Seleciona o customer e entra na conta
-  await customer.selectCustomer('Harry Potter');
 
-  // Round 1
-  await customer.deposit(1000); // deposita 1000
-  await customer.withdraw(200); // saca 200
+  const wait1s = async () => page.waitForTimeout(1000);
 
-  // Lê o saldo após Round 1 e guarda como referência
-  const initialBalance = parseInt(await customer.getBalance(), 10);
+  await customer.selectCustomer('Neville Longbottom');
 
-  // Round 2
-  await customer.deposit(1000); // deposita 1000 (OBS: aqui você mudou de 1000 para 1001)
-  await customer.withdraw(200); // saca 200
+  // validação extra simples (opcional)
+  await expect(page.getByText('Welcome')).toBeVisible();
 
-  // Lê saldo final após Round 2
-  const finalBalance = parseInt(await customer.getBalance(), 10);
 
-  // Valida se o saldo final bate com o cálculo esperado
-  // ⚠️ ATENÇÃO: seu cálculo aqui está usando +1000 -200,
-  // mas no Round 2 você fez deposit(1001). Isso tende a gerar falha de 1 unidade.
-  expect(finalBalance).toBe(initialBalance + 1000 - 200);
+const initialBalance = parseInt(await customer.getBalance(), 10);
+await expect(initialBalance).toBe(0);
 
-const transactionsText = await customer.getTransactionsText();
 
-// sanity check básico
-expect(transactionsText && transactionsText.trim().length > 0).toBeTruthy();
+await customer.deposit(100)
+await wait1s();
+await customer.deposit(200)
+await wait1s();
+await customer.deposit(500)
+await wait1s();
+await customer.deposit(1000)
 
-// 🔥 retry inteligente (evita falha por flakiness no CI)
-let finalText = transactionsText;
 
-if (!/Credit|Debit/i.test(transactionsText)) {
-  console.warn('⚠️ Tabela vazia na primeira tentativa, tentando novamente...');
+await customer.withdraw(100)
+await wait1s();
+await customer.withdraw(99)
 
-  // tenta novamente buscar a tabela
-  finalText = await customer.getTransactionsText();
-}
 
-// valida de fato
-expect(
-  /Credit|Debit/i.test(finalText),
-  `Tabela parece sem transações:\n${finalText}`
-).toBe(true);
+const finalBalance = parseInt(await customer.getBalance(), 10);
 
-  // Chama IA para validar consistência entre transações e saldo final esperado
-  const aiResult = await validateBankConsistency(transactionsText, finalBalance);
 
-  // Se IA retornar pass=false, o teste falha mostrando a reason
-  expect(aiResult.pass, aiResult.reason).toBe(true);
+await page.getByRole('button', {name: 'Transactions'}).click();
+await page.getByRole('button', {name: 'Back'}).click();
+await wait1s();
+await wait1s();
+await wait1s();
+await page.getByRole('button', {name: 'Transactions'}).click();
+
+
+
+
+// EXEMPLO DE USO (na tela de Transactions):
+const expectedCredits = [100, 200, 500, 1000];
+const expectedDebits = [100, 99];
+
+const expectedFinalBalance =
+  initialBalance +
+  expectedCredits.reduce((a, b) => a + b, 0) -
+  expectedDebits.reduce((a, b) => a + b, 0);
+
+
+
+  expect(finalBalance).toBe(expectedFinalBalance);
+
+
+// valida saldo
+expect(finalBalance).toBe(expectedFinalBalance);
+
+// já na tela Transactions:
+await customer.validateTransactionsOnScreen(page, {
+  expectedCredits,
+  expectedDebits,
+  expectedFinalBalance,
 });
+
+
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// import { test, expect } from '@playwright/test';
+// import { LoginPage } from '../pages/LoginPage.js';
+// import { CustomerPage } from '../pages/CustomerPage.js';
+// import { validateBankConsistency } from '../ai/transactionValidator.js';
+// import { notifyN8n } from '../utils/n8nNotifier.js';
+
+// test.setTimeout(150000); // 150s (CI + UI + IA)
+
+// test.afterEach(async ({}, testInfo) => {
+//   const payload = {
+//     event: 'playwright_result',
+//     title: testInfo.title,
+//     status: testInfo.status,
+//     expectedStatus: testInfo.expectedStatus,
+//     duration: testInfo.duration,
+//     file: testInfo.file,
+//     errors: testInfo.errors?.map((e) => e.message) || [],
+//     timestamp: new Date().toISOString(),
+//     level: testInfo.status !== testInfo.expectedStatus ? 'ERROR' : 'SUCCESS',
+//   };
+
+//   // não bloqueia o fim do teste/pipeline
+//   notifyN8n(payload).catch(() => {});
+// });
+
+// test('OpenAI Banking Validation - Neville (deposit/withdraw sequence)', async ({ page }) => {
+//   const login = new LoginPage(page);
+//   const customer = new CustomerPage(page);
+
+//   // 1) login com Neville Longbottom
+//   await login.goTo();
+//   await login.loginAsCustomer();
+//   await customer.selectCustomer('Neville Longbottom');
+
+//   // saldo inicial para cálculo do esperado
+//   const initialBalance = parseInt(await customer.getBalance(), 10);
+
+//   // helper para esperar 1s entre transações
+//   const wait1s = async () => page.waitForTimeout(1000);
+
+//   // 2) depósito 1000
+//   await customer.deposit(1000);
+//   await wait1s();
+
+//   // 3) saque 200
+//   await customer.withdraw(200);
+//   await wait1s();
+
+//   // 4) depósito 500
+//   await customer.deposit(500);
+//   await wait1s();
+
+//   // 5) saque 99 e já ir para Transactions
+//   await customer.withdraw(99);
+// await page.waitForTimeout(2500); // dá tempo do app registrar e refletir na lista
+
+//   // saldo final esperado (determinístico)
+//   const expectedFinalBalance = initialBalance + 1000 - 200 + 500 - 99;
+
+//   const finalBalance = parseInt(await customer.getBalance(), 10);
+//   expect(finalBalance).toBe(expectedFinalBalance);
+
+//   // 6) em Transactions, validar o contexto da tabela com IA
+//   const transactionsText = await customer.getTransactionsText();
+
+//   expect(transactionsText && transactionsText.trim().length > 0).toBeTruthy();
+//   expect(/Credit|Debit/i.test(transactionsText), `Tabela parece sem transações:\n${transactionsText}`).toBe(true);
+
+//   const aiResult = await validateBankConsistency(transactionsText, finalBalance);
+//   expect(aiResult.pass, aiResult.reason).toBe(true);
+// });

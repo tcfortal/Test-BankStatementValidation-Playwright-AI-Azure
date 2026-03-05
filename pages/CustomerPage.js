@@ -1,211 +1,347 @@
-// Importa o expect do Playwright Test para fazer asserções (validações)
 import { expect } from '@playwright/test';
+import { validateBankConsistency } from '../ai/transactionValidator.js';
 
-// Converte um objeto Date para o formato aceito por inputs do tipo datetime-local:
-// "YYYY-MM-DDTHH:mm:ss"
-function toDatetimeLocal(d) {
-  // Função auxiliar para garantir 2 dígitos (ex: 3 -> "03")
-  const pad = (n) => String(n).padStart(2, '0');
 
-  // Monta a string final no padrão do input datetime-local
-  // getMonth() começa em 0, por isso soma +1
-  return (
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
-    `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-  );
-}
-
-// Exporta a Page Object Model (POM) da página de Customer (cliente)
 export class CustomerPage {
-  // Recebe o objeto "page" do Playwright (aba/navegador)
   constructor(page) {
-    this.page = page; // guarda para usar em todos os métodos
+    this.page = page;
 
-    // Cria um locator para o bloco central que contém "Account Number"
-    // .locator('div.center') pode retornar mais de um elemento,
-    // então usamos filter + first() pra escolher o primeiro que tem esse texto
-    this.accountBlock = this.page
-      .locator('div.center')
-      .filter({ hasText: 'Account Number' })
-      .first();
+
+    // elementos da tela de seleção de usuário
+    this.userSelect = page.locator('#userSelect');
+    this.loginBtn = page.getByRole('button', { name: 'Login' });
+
+    // marcador da tela /account (quando loga)
+    this.welcomeText = page.getByText('Welcome');
+    this.accountBlock = page.locator('div.center').filter({ hasText: 'Account Number' }).first();
   }
 
-  // Faz login selecionando um customer pelo nome no select e clicando Login
   async selectCustomer(name) {
-    // Espera o select existir na tela (até 15s)
-    await this.page.waitForSelector('#userSelect', { timeout: 15000 });
+    await this.userSelect.waitFor({ state: 'visible', timeout: 15000 });
+    await this.userSelect.selectOption({ label: name });
+    await this.loginBtn.click();
 
-    // Seleciona a opção pelo label (texto visível) igual ao nome informado
-    await this.page.selectOption('#userSelect', { label: name });
-
-    // Clica no botão "Login" usando role (mais robusto que CSS puro)
-    await this.page.getByRole('button', { name: 'Login' }).click();
-
-    // Espera a navegação para a página /account (até 15s)
+    // confirma que entrou na conta
     await this.page.waitForURL('**/account', { timeout: 15000 });
-
-    // Confirma que aparece o texto "Welcome" (garante que logou mesmo)
-    await expect(this.page.getByText('Welcome')).toBeVisible({ timeout: 15000 });
+    await expect(this.welcomeText).toBeVisible({ timeout: 15000 });
+    await expect(this.accountBlock).toBeVisible({ timeout: 15000 });
   }
 
-  // Lê o saldo atual exibido na página e retorna como string (apenas números)
-  async getBalance() {
-    // Espera o bloco da conta estar visível
-    await this.accountBlock.waitFor({ state: 'visible', timeout: 15000 });
 
-    // Pega o texto completo do bloco
-    const text = await this.accountBlock.innerText();
 
-    // Procura algo como "Balance : 1234" (case-insensitive)
-    const match = text.match(/Balance\s*:\s*([0-9]+)/i);
+//....................getBalance.....................//
+    async getBalance() {
+      await this.accountBlock.waitFor({ state: 'visible', timeout: 15000 });
+      const text = await this.accountBlock.innerText();
 
-    // Se não conseguiu extrair, lança erro com o texto para debug
-    if (!match) throw new Error(`Não consegui extrair Balance:\n${text}`);
+      const match = text.match(/Balance\s*:\s*([0-9]+)/i);
+      if (!match) throw new Error(`Não consegui extrair Balance:\n${text}`);
 
-    // Retorna o grupo capturado (somente números)
-    return match[1];
-  }
+      return match[1];
+    }
 
-  // Executa um depósito e valida que o saldo final aumentou corretamente
-  async deposit(amount) {
-    // Captura o saldo ANTES do depósito (converte para número)
-    const before = parseInt(await this.getBalance(), 10);
 
-    // Abre a aba/fluxo de depósito (botão Deposit)
-    await this.page.getByRole('button', { name: /^Deposit$/ }).click();
 
-    // Localiza o form específico pelo texto "Amount to be Deposited"
-    const form = this.page.locator('form').filter({ hasText: 'Amount to be Deposited' });
+//....................DEPOSITO.....................//
 
-    // Localiza o input de valor do depósito pelo placeholder
-    const input = form.locator('input[placeholder="amount"]');
 
-    // Garante que o input está visível
-    await expect(input).toBeVisible({ timeout: 15000 });
+async deposit(amount) {
+  // saldo antes
+  const before = parseInt(await this.getBalance(), 10);
 
-    // Preenche com o valor do depósito (convertendo para string)
-    await input.fill(String(amount));
+  // abre o fluxo de depósito
+  await this.page.locator('button.tab', { hasText: 'Deposit' }).click();
 
-    // Confirma que o input realmente ficou com o valor
-    await expect(input).toHaveValue(String(amount));
+    // pega o form específico de depósito
+  const form = this.page.locator('form').filter({ hasText: 'Amount to be Deposited' });
 
-    // Localiza o botão de submit do depósito dentro do form
-    const submit = form.getByRole('button', { name: /^Deposit$/ });
 
-    // Clica para submeter
-    // force: true ignora algumas restrições (ex: overlay, animação)
-    await submit.click({ force: true });
+  const input = form.locator('input[placeholder="amount"]');
+  await expect(input).toBeVisible({ timeout: 15000 });
+  await input.fill(String(amount));
 
-    // Faz um polling: fica verificando o saldo até bater com o esperado ou estourar timeout
-    // Isso é melhor do que um waitForTimeout fixo
-    await expect
-      .poll(async () => parseInt(await this.getBalance(), 10), { timeout: 15000 })
-      .toBe(before + amount);
-  }
+  // clica no botão Deposit do form (submit)
+  await form.getByRole('button', { name: /^Deposit$/ }).click();
 
-  // Executa um saque e valida que o saldo final diminuiu corretamente
-  async withdraw(amount) {
-    // Captura o saldo ANTES do saque
-    const before = parseInt(await this.getBalance(), 10);
-
-    // Abre a aba/fluxo de saque
-    // OBS: o texto "Withdrawl" parece um typo do app (muito comum em demos)
-    await this.page.getByRole('button', { name: 'Withdrawl' }).click();
-
-    // Localiza o form específico pelo texto "Amount to be Withdrawn"
-    const form = this.page.locator('form').filter({ hasText: 'Amount to be Withdrawn' });
-
-    // Localiza o input do valor do saque
-    const input = form.locator('input[placeholder="amount"]');
-
-    // Garante que o input está visível
-    await expect(input).toBeVisible({ timeout: 15000 });
-
-    // Preenche com o valor do saque
-    await input.fill(String(amount));
-
-    // Confirma que foi preenchido
-    await expect(input).toHaveValue(String(amount));
-
-    // Localiza o botão de submit do saque ("Withdraw")
-    const submit = form.getByRole('button', { name: /^Withdraw$/ });
-
-    // Clica para submeter (force para reduzir flakiness)
-    await submit.click({ force: true });
-
-    // Polling do saldo: espera até saldo = before - amount
-    await expect
-      .poll(async () => parseInt(await this.getBalance(), 10), { timeout: 15000 })
-      .toBe(before - amount);
-  }
-
-  // Abre a página de transações e aplica um range de tempo para garantir que aparecem registros
-async openTransactions() {
-  await this.accountBlock.waitFor({ state: 'visible', timeout: 15000 });
-
-  const txBtn = this.page.getByRole('button', { name: /^Transactions$/ });
-  await txBtn.click({ timeout: 15000 });
-  await this.page.waitForURL(/#\/listTx/, { timeout: 15000 });
-
-  const start = this.page.locator('#start');
-  const end = this.page.locator('#end');
-  const rows = this.page.locator('table tbody tr');
-
-  await expect(start).toBeVisible({ timeout: 15000 });
-  await expect(end).toBeVisible({ timeout: 15000 });
-
-  const now = new Date();
-
-  const applyRange = async (from) => {
-    await start.fill(toDatetimeLocal(from));
-    await end.fill(toDatetimeLocal(now));
-    await start.dispatchEvent('input'); await start.dispatchEvent('change');
-    await end.dispatchEvent('input');   await end.dispatchEvent('change');
-  };
-
-  // ✅ tentativa rápida: 1 hora
-  try {
-    await applyRange(new Date(now.getTime() - 60 * 60 * 1000));
-    await expect(rows.first()).toBeVisible({ timeout: 4000 }); // curto = rápido
-    return;
-  } catch {}
-
-  // ✅ fallback leve: 24 horas (sem sair da página)
-  try {
-    await applyRange(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-    await expect(rows.first()).toBeVisible({ timeout: 8000 });
-    return;
-  } catch {}
-
-  // ✅ fallback pesado (só se necessário): volta e reabre
-  const back = this.page.locator('button:has-text("Back")').first();
-  if (await back.count()) {
-    await back.click({ force: true });
-    await this.page.waitForURL('**/account', { timeout: 15000 });
-
-    await txBtn.click({ timeout: 15000 });
-    await this.page.waitForURL(/#\/listTx/, { timeout: 15000 });
-
-    await applyRange(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-    await expect(rows.first()).toBeVisible({ timeout: 15000 });
-    return;
-  }
-
-  throw new Error('Tabela de transações não carregou linhas após tentativas.');
+  // espera o saldo refletir
+  await expect
+    .poll(async () => parseInt(await this.getBalance(), 10), { timeout: 15000 })
+    .toBe(before + amount);
 }
 
-  // Retorna o texto da tabela de transações (útil pra validação com IA ou asserts)
-  async getTransactionsText() {
-    // Garante que está na tela de transações com range aplicado e tabela visível
-    await this.openTransactions();
 
-    // Localiza a tabela
-    const table = this.page.locator('table');
 
-    // Garante visibilidade
-    await expect(table).toBeVisible({ timeout: 15000 });
 
-    // Retorna o texto completo da tabela (trim remove espaços extras)
-    return (await table.innerText()).trim();
-  }
+
+async withdraw(amount) {
+  // saldo antes
+  const before = parseInt(await this.getBalance(), 10);
+
+  // abre o fluxo de saque (no app o botão da aba é "Withdrawl")
+  await this.page.locator('button.tab', { hasText: 'Withdrawl' }).click();
+
+  // pega o form específico de saque
+  const form = this.page.locator('form').filter({ hasText: 'Amount to be Withdrawn' });
+
+  const input = form.locator('input[placeholder="amount"]');
+  await expect(input).toBeVisible({ timeout: 15000 });
+  await input.fill(String(amount));
+
+  // clica no botão Withdraw do form (submit)
+  await form.getByRole('button', { name: /^Withdraw$/ }).click();
+
+  // espera o saldo refletir
+  await expect
+    .poll(async () => parseInt(await this.getBalance(), 10), { timeout: 15000 })
+    .toBe(before - amount);
 }
+
+async  validateTransactionsOnScreen(page, { expectedCredits = [], expectedDebits = [], expectedFinalBalance }) {
+  const table = page.locator('table');
+  const rows = page.locator('table tbody tr');
+
+  await expect(table).toBeVisible({ timeout: 15000 });
+
+  // 1) quantidade de transações
+  const count = await rows.count();
+  expect(count).toBe(expectedCredits.length + expectedDebits.length);
+  
+
+  // 2) pega texto da tabela (para validações simples + IA)
+  const text = (await table.innerText()).trim();
+
+  // valida presença básica
+  expect(/Credit|Debit/i.test(text)).toBe(true);
+
+  // 3) valida valores esperados (simples: só checar se aparecem no texto)
+  for (const v of expectedCredits) {
+    expect(text.includes(`\t${v}\tCredit`) || text.includes(`${v}\tCredit`) || text.includes(`${v} Credit`)).toBe(true);
+  }
+  for (const v of expectedDebits) {
+    expect(text.includes(`\t${v}\tDebit`) || text.includes(`${v}\tDebit`) || text.includes(`${v} Debit`)).toBe(true);
+  }
+
+  // 4) IA valida o contexto geral + saldo final esperado
+  const ai = await validateBankConsistency(text, expectedFinalBalance);
+  expect(ai.pass, ai.reason).toBe(true);
+
+  return { count, text, ai };
+}
+
+
+
+
+}
+
+
+
+
+
+
+// import { expect } from '@playwright/test';
+
+// export class CustomerPage {
+//   constructor(page) {
+//     this.page = page;
+
+//     this.accountBlock = this.page
+//       .locator('div.center')
+//       .filter({ hasText: 'Account Number' })
+//       .first();
+//   }
+
+//   async selectCustomer(name) {
+//     await this.page.waitForSelector('#userSelect', { timeout: 15000 });
+//     await this.page.selectOption('#userSelect', { label: name });
+//     await this.page.getByRole('button', { name: 'Login' }).click();
+
+//     await this.page.waitForURL('**/account', { timeout: 15000 });
+//     await expect(this.page.getByText('Welcome')).toBeVisible({ timeout: 15000 });
+//   }
+
+  // async getBalance() {
+  //   await this.accountBlock.waitFor({ state: 'visible', timeout: 15000 });
+  //   const text = await this.accountBlock.innerText();
+
+  //   const match = text.match(/Balance\s*:\s*([0-9]+)/i);
+  //   if (!match) throw new Error(`Não consegui extrair Balance:\n${text}`);
+
+  //   return match[1];
+  // }
+
+//   async deposit(amount) {
+//     const before = parseInt(await this.getBalance(), 10);
+
+//     await this.page.getByRole('button', { name: /^Deposit$/ }).click();
+
+//     const form = this.page.locator('form').filter({ hasText: 'Amount to be Deposited' });
+//     const input = form.locator('input[placeholder="amount"]');
+
+//     await expect(input).toBeVisible({ timeout: 15000 });
+//     await input.fill(String(amount));
+//     await expect(input).toHaveValue(String(amount));
+
+//     await form.getByRole('button', { name: /^Deposit$/ }).click({ force: true });
+
+//     await expect
+//       .poll(async () => parseInt(await this.getBalance(), 10), { timeout: 15000 })
+//       .toBe(before + amount);
+//   }
+
+//   async withdraw(amount) {
+//     const before = parseInt(await this.getBalance(), 10);
+
+//     await this.page.getByRole('button', { name: 'Withdrawl' }).click();
+
+//     const form = this.page.locator('form').filter({ hasText: 'Amount to be Withdrawn' });
+//     const input = form.locator('input[placeholder="amount"]');
+
+//     await expect(input).toBeVisible({ timeout: 15000 });
+//     await input.fill(String(amount));
+//     await expect(input).toHaveValue(String(amount));
+
+//     await form.getByRole('button', { name: /^Withdraw$/ }).click({ force: true });
+
+//     await expect
+//       .poll(async () => parseInt(await this.getBalance(), 10), { timeout: 15000 })
+//       .toBe(before - amount);
+//   }
+
+//   async ensureOnAccountPage() {
+//     await this.accountBlock.waitFor({ state: 'visible', timeout: 15000 });
+//     await expect(this.page.locator('button', { hasText: 'Transactions' }).first()).toBeVisible({
+//       timeout: 15000,
+//     });
+//   }
+
+//   // -------------------------------------------------------
+//   // Aplica range no filtro de transações
+//   // - model do Angular recebe Date (evita ngModel:datefmt)
+//   // - valor do input recebe string SEM segundos (mais compatível)
+//   // - se min/max forem muito apertados (segundos), usa fallback 24h
+//   // -------------------------------------------------------
+//   async setRangeViaAngularSmart() {
+//     await this.page.waitForFunction(() => !!window.angular, null, { timeout: 15000 });
+
+//     await this.page.evaluate(() => {
+//       const startEl = document.querySelector('#start');
+//       const endEl = document.querySelector('#end');
+//       if (!startEl || !endEl) throw new Error('Inputs #start/#end não encontrados');
+
+//       const minStr = startEl.getAttribute('min') || endEl.getAttribute('min');
+//       const maxStr = endEl.getAttribute('max') || startEl.getAttribute('max');
+
+//       const now = new Date();
+//       let fromDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+//       let toDate = now;
+
+//       // Se min/max existirem, tenta usar... mas só se a janela for razoável
+//       if (minStr && maxStr) {
+//         const minD = new Date(minStr);
+//         const maxD = new Date(maxStr);
+//         const windowMs = maxD - minD;
+
+//         if (windowMs >= 5 * 60 * 1000) {
+//           fromDate = minD;
+//           toDate = maxD;
+//         }
+//       }
+
+//       const pad = (n) => String(n).padStart(2, '0');
+//       const fmtNoSeconds = (d) =>
+//         `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+//         `T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+//       startEl.value = fmtNoSeconds(fromDate);
+//       endEl.value = fmtNoSeconds(toDate);
+
+//       // força watchers
+//       startEl.focus();
+//       startEl.blur();
+//       endEl.focus();
+//       endEl.blur();
+
+//       startEl.dispatchEvent(new Event('input', { bubbles: true }));
+//       startEl.dispatchEvent(new Event('change', { bubbles: true }));
+//       endEl.dispatchEvent(new Event('input', { bubbles: true }));
+//       endEl.dispatchEvent(new Event('change', { bubbles: true }));
+
+//       const ng = window.angular;
+//       const scope = ng.element(startEl).scope() || ng.element(startEl).isolateScope();
+//       if (!scope) throw new Error('Scope Angular não encontrado');
+
+//       const applyFn = () => {
+//         scope.startDate = fromDate;
+//         scope.endDate = toDate;
+//       };
+
+//       if (scope.$$phase) scope.$applyAsync(applyFn);
+//       else scope.$apply(applyFn);
+
+//       scope.$applyAsync(() => {});
+//     });
+//   }
+
+//   async openTransactionsEnsureRows({ minRows = 1 } = {}) {
+//   const txBtn = this.page.locator('button', { hasText: 'Transactions' }).first();
+//   const backBtn = this.page.locator('button:has-text("Back")').first();
+
+//   const table = this.page.locator('table');
+//   const rows = this.page.locator('table tbody tr');
+
+//   const waitRowsQuick = async (ms) => {
+//     await expect(table).toBeVisible({ timeout: 15000 });
+//     const start = Date.now();
+
+//     while (Date.now() - start < ms) {
+//       const c = await rows.count();
+//       if (c >= minRows) return true;
+//       await this.page.waitForTimeout(100);
+//     }
+//     return false;
+//   };
+
+//   // ✅ define aqui o que é "abrir + aplicar filtro"
+//   const openAndFilter = async () => {
+//     await this.ensureOnAccountPage();
+
+//     await txBtn.click({ timeout: 15000 });
+//     await this.page.waitForURL(/#\/listTx/, { timeout: 15000 });
+//     await expect(table).toBeVisible({ timeout: 15000 });
+
+//     // aplica o range (seu método atual)
+//     await this.setRangeViaAngularSmart();
+//   };
+
+//   // ✅ loop com cooldowns (tenta, volta, tenta de novo)
+//   const cooldowns = [0, 800, 1500, 2500];
+
+//   for (let attempt = 0; attempt < cooldowns.length; attempt++) {
+//     if (cooldowns[attempt] > 0) {
+//       await this.page.waitForTimeout(cooldowns[attempt]);
+//     }
+
+//     await openAndFilter();
+
+//     const ok = await waitRowsQuick(6000);
+//     if (ok) return;
+
+//     if (await backBtn.count()) {
+//       await backBtn.click({ force: true });
+//       await this.page.waitForURL('**/account', { timeout: 15000 });
+//     } else {
+//       break;
+//     }
+//   }
+
+//   const txt = await table.innerText().catch(() => '');
+//   throw new Error(
+//     `Tabela de transações não carregou linhas após múltiplas tentativas (Back→Transactions).\nConteúdo:\n${txt}`
+//   );
+// }
+
+//   async getTransactionsText() {
+//     await this.openTransactionsEnsureRows({ minRows: 1 });
+//     return (await this.page.locator('table').innerText()).trim();
+//   }
+// }
