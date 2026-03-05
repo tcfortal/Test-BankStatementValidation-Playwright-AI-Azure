@@ -1,85 +1,121 @@
+
 import { test, expect } from '@playwright/test';
 import { LoginPage } from '../pages/LoginPage.js';
 import { CustomerPage } from '../pages/CustomerPage.js';
 
+// Define o tempo máximo permitido para o teste inteiro (60 segundos)
 test.setTimeout(60000);
 
+// O Playwright injeta { page } que é a aba do navegador controlada pelo teste
 test('Login - Neville Longbottom', async ({ page }) => {
+  // Cria uma instância do LoginPage usando a mesma page (mesma aba)
   const login = new LoginPage(page);
+
+  // Cria uma instância do CustomerPage usando a mesma page
   const customer = new CustomerPage(page);
 
+  // Abre a URL do sistema (método implementado no LoginPage)
   await login.goTo();
+
+  // Clica em "Customer Login" (método implementado no LoginPage)
   await login.loginAsCustomer();
 
-
+  // Cria uma função auxiliar que espera 1 segundo (útil para dar tempo de UI atualizar)
   const wait1s = async () => page.waitForTimeout(1000);
 
+  // Seleciona o usuário Neville Longbottom no select e clica Login
   await customer.selectCustomer('Neville Longbottom');
 
-  // validação extra simples (opcional)
+  // Validação simples: confirma que o texto "Welcome" está visível (ou seja, logou)
   await expect(page.getByText('Welcome')).toBeVisible();
 
+  // Lê o saldo atual (string), converte pra número inteiro (base 10) e guarda em initialBalance
+  const initialBalance = parseInt(await customer.getBalance(), 10);
 
-const initialBalance = parseInt(await customer.getBalance(), 10);
-await expect(initialBalance).toBe(0);
+  // Valida que o saldo inicial é 0 (isso pode falhar se o usuário já tiver saldo)
+  await expect(initialBalance).toBe(0);
 
+  // Faz um depósito de 100
+  await customer.deposit(100);
 
-await customer.deposit(100)
-await wait1s();
-await customer.deposit(200)
-await wait1s();
-await customer.deposit(500)
-await wait1s();
-await customer.deposit(1000)
+  // Espera 1 segundo
+  await wait1s();
 
+  // Faz um depósito de 200
+  await customer.deposit(200);
 
-await customer.withdraw(100)
-await wait1s();
-await customer.withdraw(99)
+  // Espera 1 segundo
+  await wait1s();
 
+  // Faz um depósito de 500
+  await customer.deposit(500);
 
-const finalBalance = parseInt(await customer.getBalance(), 10);
+  // Espera 1 segundo
+  await wait1s();
 
+  // Faz um depósito de 1000
+  await customer.deposit(1000);
 
-await page.getByRole('button', {name: 'Transactions'}).click();
-await page.getByRole('button', {name: 'Back'}).click();
-await wait1s();
-await wait1s();
-await wait1s();
-await page.getByRole('button', {name: 'Transactions'}).click();
+  // Faz um saque de 100
+  await customer.withdraw(100);
 
+  // Espera 1 segundo
+  await wait1s();
 
+  // Faz um saque de 99
+  await customer.withdraw(99);
 
+  // Lê o saldo final após todas as operações
+  const finalBalance = parseInt(await customer.getBalance(), 10);
 
-// EXEMPLO DE USO (na tela de Transactions):
-const expectedCredits = [100, 200, 500, 1000];
-const expectedDebits = [100, 99];
+  // Clica no botão "Transactions" para ir para a tela de transações
+  await page.getByRole('button', { name: 'Transactions' }).click();
 
-const expectedFinalBalance =
-  initialBalance +
-  expectedCredits.reduce((a, b) => a + b, 0) -
-  expectedDebits.reduce((a, b) => a + b, 0);
+  // Clica no botão "Back" para voltar para a tela da conta
+  await page.getByRole('button', { name: 'Back' }).click();
 
+  // Espera 1 segundo (1ª vez)
+  await wait1s();
 
+  // Espera 1 segundo (2ª vez)
+  await wait1s();
 
+  // Espera 1 segundo (3ª vez)
+  await wait1s();
+
+  // Entra novamente em "Transactions" (você usa isso porque às vezes só carrega na 2ª entrada)
+  await page.getByRole('button', { name: 'Transactions' }).click();
+
+  // Define os valores esperados de créditos (depósitos) que devem aparecer na tabela
+  const expectedCredits = [100, 200, 500, 1000];
+
+  // Define os valores esperados de débitos (saques) que devem aparecer na tabela
+  const expectedDebits = [100, 99];
+
+  // Calcula o saldo final esperado:
+  // saldo inicial + soma dos créditos - soma dos débitos
+  const expectedFinalBalance =
+    initialBalance +
+    expectedCredits.reduce((a, b) => a + b, 0) -
+    expectedDebits.reduce((a, b) => a + b, 0);
+
+  // Valida que o saldo final calculado bate com o saldo final esperado
   expect(finalBalance).toBe(expectedFinalBalance);
 
+  // (Duplicado) Valida novamente que o saldo final calculado bate com o saldo esperado
+  // Obs: essa linha é redundante porque você já validou acima
+  expect(finalBalance).toBe(expectedFinalBalance);
 
-// valida saldo
-expect(finalBalance).toBe(expectedFinalBalance);
-
-// já na tela Transactions:
-await customer.validateTransactionsOnScreen(page, {
-  expectedCredits,
-  expectedDebits,
-  expectedFinalBalance,
+  // Chama a validação de transações na tela:
+  // - valida quantidade de transações
+  // - valida presença dos valores
+  // - valida contexto com IA (dependendo da implementação desse método)
+  await customer.validateTransactionsOnScreen(page, {
+    expectedCredits,
+    expectedDebits,
+    expectedFinalBalance,
+  });
 });
-
-
-});
-
-
-
 
 
 
