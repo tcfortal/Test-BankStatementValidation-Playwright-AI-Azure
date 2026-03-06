@@ -47,7 +47,7 @@ test('Neville - deposits/withdraws + validate transactions', async ({ page }) =>
 
   // Cenário
   const expectedCredits = [100, 200, 500, 1000];
-  const expectedDebits = [];
+  const expectedDebits = [100, 99];
 
   // Deposits
   for (const v of expectedCredits) {
