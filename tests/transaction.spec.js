@@ -1,125 +1,92 @@
-
+import 'dotenv/config';
 import { test, expect } from '@playwright/test';
 import { LoginPage } from '../pages/LoginPage.js';
 import { CustomerPage } from '../pages/CustomerPage.js';
+import { notifyN8n } from '../utils/n8nNotifier.js';
 
-// Define o tempo máximo permitido para o teste inteiro (60 segundos)
 test.setTimeout(60000);
 
-// O Playwright injeta { page } que é a aba do navegador controlada pelo teste
-test('Login - Neville Longbottom', async ({ page }) => {
-  // Cria uma instância do LoginPage usando a mesma page (mesma aba)
-  const login = new LoginPage(page);
+// Envia resultado do teste para o n8n ao final (passando ou falhando)
+test.afterEach(async ({}, testInfo) => {
+  const payload = {
+    event: 'playwright_result',
+    title: testInfo.title,
+    status: testInfo.status,
+    expectedStatus: testInfo.expectedStatus,
+    duration: testInfo.duration,
+    file: testInfo.file,
+    errors: testInfo.errors?.map(e => e.message) || [],
+    timestamp: new Date().toISOString(),
+    level: testInfo.status === testInfo.expectedStatus ? 'SUCCESS' : 'ERROR',
+  };
 
-  // Cria uma instância do CustomerPage usando a mesma page
+  
+
+  try {
+    await notifyN8n(payload);
+    console.log('[afterEach] notifyN8n() finalizou');
+  } catch (e) {
+    console.warn('[afterEach] notifyN8n() ERRO:', e?.message || e);
+  }
+});
+
+test('Neville - deposits/withdraws + validate transactions', async ({ page }) => {
+  const login = new LoginPage(page);
   const customer = new CustomerPage(page);
 
-  // Abre a URL do sistema (método implementado no LoginPage)
   await login.goTo();
-
-  // Clica em "Customer Login" (método implementado no LoginPage)
   await login.loginAsCustomer();
 
-  // Cria uma função auxiliar que espera 1 segundo (útil para dar tempo de UI atualizar)
   const wait1s = async () => page.waitForTimeout(1000);
 
-  // Seleciona o usuário Neville Longbottom no select e clica Login
   await customer.selectCustomer('Neville Longbottom');
-
-  // Validação simples: confirma que o texto "Welcome" está visível (ou seja, logou)
   await expect(page.getByText('Welcome')).toBeVisible();
 
-  // Lê o saldo atual (string), converte pra número inteiro (base 10) e guarda em initialBalance
+  // Saldo inicial (não assume 0)
   const initialBalance = parseInt(await customer.getBalance(), 10);
 
-  // Valida que o saldo inicial é 0 (isso pode falhar se o usuário já tiver saldo)
-  await expect(initialBalance).toBe(0);
-
-  // Faz um depósito de 100
-  await customer.deposit(100);
-
-  // Espera 1 segundo
-  await wait1s();
-
-  // Faz um depósito de 200
-  await customer.deposit(200);
-
-  // Espera 1 segundo
-  await wait1s();
-
-  // Faz um depósito de 500
-  await customer.deposit(500);
-
-  // Espera 1 segundo
-  await wait1s();
-
-  // Faz um depósito de 1000
-  await customer.deposit(1000);
-
-  // Faz um saque de 100
-  await customer.withdraw(100);
-
-  // Espera 1 segundo
-  await wait1s();
-
-  // Faz um saque de 99
-  await customer.withdraw(99);
-
-  // Lê o saldo final após todas as operações
-  const finalBalance = parseInt(await customer.getBalance(), 10);
-
-  // Clica no botão "Transactions" para ir para a tela de transações
-  await page.getByRole('button', { name: 'Transactions' }).click();
-
-  // Clica no botão "Back" para voltar para a tela da conta
-  await page.getByRole('button', { name: 'Back' }).click();
-
-  // Espera 1 segundo (1ª vez)
-  await wait1s();
-
-  // Espera 1 segundo (2ª vez)
-  await wait1s();
-
-  // Espera 1 segundo (3ª vez)
-  await wait1s();
-
-  // Entra novamente em "Transactions" (você usa isso porque às vezes só carrega na 2ª entrada)
-  await page.getByRole('button', { name: 'Transactions' }).click();
-
-  // Define os valores esperados de créditos (depósitos) que devem aparecer na tabela
+  // Cenário
   const expectedCredits = [100, 200, 500, 1000];
-
-  // Define os valores esperados de débitos (saques) que devem aparecer na tabela
   const expectedDebits = [100, 99];
 
-  // Calcula o saldo final esperado:
-  // saldo inicial + soma dos créditos - soma dos débitos
+  // Deposits
+  for (const v of expectedCredits) {
+    await customer.deposit(v);
+    await wait1s();
+  }
+
+  // Withdraws
+  for (const v of expectedDebits) {
+    await customer.withdraw(v);
+    await wait1s();
+  }
+
+  // Saldo final
+  const finalBalance = parseInt(await customer.getBalance(), 10);
+
+  // Saldo esperado
   const expectedFinalBalance =
     initialBalance +
     expectedCredits.reduce((a, b) => a + b, 0) -
     expectedDebits.reduce((a, b) => a + b, 0);
 
-  // Valida que o saldo final calculado bate com o saldo final esperado
   expect(finalBalance).toBe(expectedFinalBalance);
 
-  // (Duplicado) Valida novamente que o saldo final calculado bate com o saldo esperado
-  // Obs: essa linha é redundante porque você já validou acima
-  expect(finalBalance).toBe(expectedFinalBalance);
+  // Abre Transactions (truque back -> transactions)
+  await page.getByRole('button', { name: 'Transactions' }).click();
+  await page.getByRole('button', { name: 'Back' }).click();
+  await page.waitForTimeout(2500);
+  await page.getByRole('button', { name: 'Transactions' }).click();
 
-  // Chama a validação de transações na tela:
-  // - valida quantidade de transações
-  // - valida presença dos valores
-  // - valida contexto com IA (dependendo da implementação desse método)
+  // Valida tabela + contexto (lógica + IA) via método do CustomerPage
   await customer.validateTransactionsOnScreen(page, {
     expectedCredits,
     expectedDebits,
     expectedFinalBalance,
   });
+
+
 });
-
-
-
-
 
 
 
